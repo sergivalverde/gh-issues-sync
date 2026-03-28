@@ -12,3 +12,10 @@ log() {
 }
 
 log "sync-issues-to-project: starting"
+
+# Auth check
+if ! gh auth status &>/dev/null; then
+  log "ERROR: gh auth failed. Run 'gh auth login' to fix."
+  exit 1
+fi
+log "Auth OK"
