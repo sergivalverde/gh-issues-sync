@@ -77,7 +77,7 @@ log "Found $REPO_COUNT personal repos"
 # Fetch open issues for a repo (filters out PRs)
 fetch_open_issues() {
   local repo="$1"
-  gh api --paginate "/repos/$repo/issues?state=open&per_page=100" --jq '.[] | select(.pull_request == null) | .node_id'
+  gh api --paginate "/repos/$repo/issues?state=open&assignee=$GITHUB_USER&per_page=100" --jq '.[] | select(.pull_request == null) | .node_id'
 }
 
 added=0
