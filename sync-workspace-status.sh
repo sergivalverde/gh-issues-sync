@@ -44,7 +44,7 @@ log "Found $session_count active Claude sessions"
 # Lookup session by cwd
 get_session_started() {
   local search_cwd="$1"
-  grep "^${search_cwd}|" "$SESSIONS_TMP" 2>/dev/null | head -1 | cut -d'|' -f2
+  grep "^${search_cwd}|" "$SESSIONS_TMP" 2>/dev/null | head -1 | cut -d'|' -f2 || true
 }
 
 # Fetch project items with their current field values and linked PR branches
@@ -104,7 +104,7 @@ fetch_items() {
 find_worktree_path() {
   local branch="$1"
   # Scan common workspace directories for worktrees matching this branch
-  for workspace_dir in "$HOME/tensormedical" "$HOME/Documents/raycast-extensions"; do
+  for workspace_dir in "$HOME/tensormedical" "$HOME/Documents" "$HOME/Documents/raycast-extensions"; do
     [ -d "$workspace_dir" ] || continue
     for repo_dir in "$workspace_dir"/*/; do
       [ -d "$repo_dir/.git" ] || [ -f "$repo_dir/.git" ] || continue
