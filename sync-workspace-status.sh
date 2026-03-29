@@ -5,8 +5,6 @@ set -euo pipefail
 ORG="tensormedical"
 PROJECT_NUMBER=46
 PROJECT_ID="PVT_kwDOAr65yM4AzR2f"
-WORKSPACE_FIELD_ID="PVTF_lADOAr65yM4AzR2fzhAcnjY"
-AGENT_FIELD_ID="PVTF_lADOAr65yM4AzR2fzhAcnkE"
 SESSIONS_DIR="$HOME/.claude/sessions"
 
 log() {
@@ -20,6 +18,29 @@ if ! gh auth status &>/dev/null; then
   log "ERROR: gh auth failed."
   exit 1
 fi
+
+# Discover field IDs dynamically — skip if fields don't exist
+FIELDS_JSON=$(gh api graphql -f query="
+  query {
+    organization(login: \"$ORG\") {
+      projectV2(number: $PROJECT_NUMBER) {
+        fields(first: 30) {
+          nodes { ... on ProjectV2Field { id name dataType } }
+        }
+      }
+    }
+  }
+")
+
+WORKSPACE_FIELD_ID=$(echo "$FIELDS_JSON" | jq -r '.data.organization.projectV2.fields.nodes[] | select(.name == "Workspace") | .id' 2>/dev/null || true)
+AGENT_FIELD_ID=$(echo "$FIELDS_JSON" | jq -r '.data.organization.projectV2.fields.nodes[] | select(.name == "Agent Status") | .id' 2>/dev/null || true)
+
+if [ -z "$WORKSPACE_FIELD_ID" ] && [ -z "$AGENT_FIELD_ID" ]; then
+  log "No Workspace or Agent Status fields found on project. Skipping."
+  exit 0
+fi
+
+log "Fields: Workspace=${WORKSPACE_FIELD_ID:-none}, Agent Status=${AGENT_FIELD_ID:-none}"
 
 # Get all active Claude sessions with their cwd (stored as lines: cwd|startedAt)
 SESSIONS_TMP=$(mktemp)
@@ -182,13 +203,13 @@ while IFS= read -r item_json; do
     agent_status="Idle"
   fi
 
-  # Update if changed
-  if [ "$current_workspace" != "$vscode_uri" ]; then
+  # Update if changed (skip if field doesn't exist)
+  if [ -n "$WORKSPACE_FIELD_ID" ] && [ "$current_workspace" != "$vscode_uri" ]; then
     update_text_field "$item_id" "$WORKSPACE_FIELD_ID" "$vscode_uri"
     updated=$((updated + 1))
     log "  Updated Workspace for item $item_id"
   fi
-  if [ "$current_agent" != "$agent_status" ]; then
+  if [ -n "$AGENT_FIELD_ID" ] && [ "$current_agent" != "$agent_status" ]; then
     update_text_field "$item_id" "$AGENT_FIELD_ID" "$agent_status"
     updated=$((updated + 1))
     log "  Updated Agent Status for item $item_id"
