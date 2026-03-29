@@ -92,12 +92,12 @@ fetch_items() {
                   ... on Issue {
                     timelineItems(itemTypes: [CONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: 5) {
                       nodes {
-                        ... on ConnectedEvent { subject { ... on PullRequest { headRefName } } }
-                        ... on CrossReferencedEvent { source { ... on PullRequest { headRefName } } }
+                        ... on ConnectedEvent { subject { ... on PullRequest { headRefName number url repository { nameWithOwner } } } }
+                        ... on CrossReferencedEvent { source { ... on PullRequest { headRefName number url repository { nameWithOwner } } } }
                       }
                     }
                   }
-                  ... on PullRequest { headRefName }
+                  ... on PullRequest { headRefName number url repository { nameWithOwner } }
                 }
                 fieldValues(first: 15) {
                   nodes {
@@ -214,6 +214,43 @@ while IFS= read -r item_json; do
     updated=$((updated + 1))
     log "  Updated Agent Status for item $item_id"
   fi
+
+  # Add vscode:// comment on linked PRs (only once, detected by marker)
+  pr_repos_and_numbers=$(echo "$item_json" | jq -r '
+    [
+      (if .content.number and .content.url and .content.repository then
+        "\(.content.repository.nameWithOwner)|\(.content.number)"
+      else empty end),
+      (.content.timelineItems?.nodes[]? |
+        (.subject // .source) |
+        select(.number and .url and .repository) |
+        "\(.repository.nameWithOwner)|\(.number)"
+      )
+    ] | unique[]
+  ' 2>/dev/null || true)
+
+  while IFS= read -r pr_ref; do
+    [ -z "$pr_ref" ] && continue
+    pr_repo=$(echo "$pr_ref" | cut -d'|' -f1)
+    pr_num=$(echo "$pr_ref" | cut -d'|' -f2)
+    [ -z "$pr_repo" ] || [ -z "$pr_num" ] && continue
+
+    # Check if we already posted a workspace comment
+    existing_comment=$(gh api "repos/$pr_repo/issues/$pr_num/comments" --jq '.[] | select(.body | contains("<!-- workspace-link -->")) | .id' 2>/dev/null | head -1 || true)
+
+    if [ -z "$existing_comment" ]; then
+      comment_body="<!-- workspace-link -->
+### Workspace
+
+[Open in VS Code]($vscode_uri)
+
+\`$wt_path\`"
+      gh api "repos/$pr_repo/issues/$pr_num/comments" -f body="$comment_body" &>/dev/null && {
+        log "  Posted workspace link on $pr_repo#$pr_num"
+        updated=$((updated + 1))
+      } || true
+    fi
+  done <<< "$pr_repos_and_numbers"
 
 done < <(fetch_items)
 
